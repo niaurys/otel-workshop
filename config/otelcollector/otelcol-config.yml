@@ -1,0 +1,42 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: ${env:OTEL_COLLECTOR_HOST}:${env:OTEL_COLLECTOR_PORT_GRPC}
+      http:
+        endpoint: ${env:OTEL_COLLECTOR_HOST}:${env:OTEL_COLLECTOR_PORT_HTTP}
+ 
+exporters:
+  debug:
+  otlp:
+    endpoint: "${env:JAEGER_SERVICE_HOST}:${env:OTEL_COLLECTOR_PORT_GRPC}"
+    tls:
+      insecure: true
+  otlphttp/prometheus:
+    endpoint: "http://${env:PROMETHEUS_ADDR}/api/v1/otlp"
+    tls:
+      insecure: true
+  elasticsearch:
+    logs_index: logs
+    endpoint: "http://${env:ELASTICSEARCH_SERVICE_ADDR}"
+
+processors:
+  batch:
+
+connectors:
+  spanmetrics:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, debug, spanmetrics]
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [batch]
+      exporters: [otlphttp/prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch, debug]

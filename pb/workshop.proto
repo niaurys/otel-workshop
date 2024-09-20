@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package otelworkshop;
+
+option go_package = "genproto/otelworkshop";
+
+service ShopService {
+    rpc ListProducts(Empty) returns (ListProductsResponse) {}
+    rpc BuyProduct(BuyProductRequest) returns (Product) {}
+}
+
+message Empty {}
+
+message Product {
+    string name = 1;
+    string color = 2;
+    int64 quantity = 3;
+}
+
+message ListProductsResponse {
+    repeated Product products = 1;
+}
+
+message BuyProductRequest {
+    string name = 1;
+    string surname = 2;
+    Product product = 3;
+}

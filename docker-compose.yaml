@@ -1,0 +1,230 @@
+name: otel-workshop
+
+services:
+  buyer:
+    image: ${IMAGE_NAME}:${WORKSHOP_VERSION}-buyer
+    container_name: buyer
+    build:
+      context: ./
+      dockerfile: ./cmd/buyer/Dockerfile
+      cache_from:
+        - ${IMAGE_NAME}:${IMAGE_VERSION}-buyer
+    restart: unless-stopped
+    environment:
+      - FACTORY_SERVICE_ADDR
+      - BUYER_SERVICE_ADDR
+      - BUYER_SERVICE_BUY_INTERVAL
+      - SHOP_SERVICE_ADDR
+    ports:
+      - ${BUYER_SERVICE_PORT}:${BUYER_SERVICE_PORT}
+    depends_on:
+      redis:
+        condition: service_healthy
+      shop:
+        condition: service_started
+
+  factory:
+    image: ${IMAGE_NAME}:${WORKSHOP_VERSION}-factory
+    container_name: factory
+    build:
+      context: ./
+      dockerfile: ./cmd/factory/Dockerfile
+      cache_from:
+        - ${IMAGE_NAME}:${IMAGE_VERSION}-factory
+    restart: unless-stopped
+    environment:
+      - FACTORY_SERVICE_ADDR
+      - KAFKA_SERVICE_ADDR
+      - FACTORY_SERVICE_KAFKA_TOPIC
+      - FACTORY_SERVICE_MAX_PRODUCTION
+      - FACTORY_SERVICE_SHIPPING_INTERVAL
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  shop:
+    image: ${IMAGE_NAME}:${WORKSHOP_VERSION}-shop
+    container_name: shop
+    build:
+      context: ./
+      dockerfile: ./cmd/shop/Dockerfile
+      cache_from:
+        - ${IMAGE_NAME}:${IMAGE_VERSION}-shop
+    restart: unless-stopped
+    environment:
+      - REDIS_SERVICE_ADDR
+      - SHOP_SERVICE_ADDR
+      - SHOP_SERVICE_INVENTORY_UPDATE_INTERVAL
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  warehouse:
+    image: ${IMAGE_NAME}:${WORKSHOP_VERSION}-warehouse
+    container_name: warehouse
+    build:
+      context: ./
+      dockerfile: ./cmd/warehouse/Dockerfile
+      cache_from:
+        - ${IMAGE_NAME}:${IMAGE_VERSION}-warehouse
+    restart: unless-stopped
+    environment:
+      - KAFKA_SERVICE_ADDR
+      - REDIS_SERVICE_ADDR
+      - FACTORY_SERVICE_KAFKA_TOPIC
+      - WAREHOUSE_SERVICE_CONSUMER_GROUP
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: ${REDIS_SERVICE_IMAGE_NAME}:${REDIS_SERVICE_IMAGE_VERSION}
+    container_name: redis
+    ports:
+      - ${REDIS_SERVICE_PORT}:${REDIS_SERVICE_PORT}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: ${IMAGE_NAME}:${WORKSHOP_VERSION}-kafka
+    container_name: kafka
+    build:
+      context: ./
+      dockerfile: ${KAFKA_SERVICE_DOCKERFILE}
+      cache_from:
+        - ${IMAGE_NAME}:${IMAGE_VERSION}-kafka
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+    restart: unless-stopped
+    environment:
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${KAFKA_SERVICE_ADDR}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+      - OTEL_RESOURCE_ATTRIBUTES
+      - OTEL_SERVICE_NAME=kafka
+      - KAFKA_HEAP_OPTS=-Xmx400m -Xms400m
+    healthcheck:
+      test: nc -z kafka 9092
+      start_period: 10s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+# Telemetry stack
+  otelcol:
+    image: ${COLLECTOR_CONTRIB_IMAGE}
+    container_name: otelcol
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+    restart: unless-stopped
+    command: 
+      - "--config=/etc/otelcol-config.yml"
+    user: 0:0
+    volumes:
+      - ${HOST_FILESYSTEM}:/hostfs:ro
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+      - ${OTEL_COLLECTOR_CONFIG}:/etc/otelcol-config.yml
+    ports:
+      - ${OTEL_COLLECTOR_PORT_GRPC}:${OTEL_COLLECTOR_PORT_GRPC}
+      - ${OTEL_COLLECTOR_PORT_HTTP}:${OTEL_COLLECTOR_PORT_HTTP}
+    depends_on:
+      - jaeger
+    environment:
+      - HOST_FILESYSTEM
+      - OTEL_COLLECTOR_HOST
+      - OTEL_COLLECTOR_PORT_GRPC
+      - OTEL_COLLECTOR_PORT_HTTP
+      - REDIS_SERVICE_ADDR
+      - JAEGER_SERVICE_HOST
+      - PROMETHEUS_ADDR
+      - ELASTICSEARCH_SERVICE_ADDR
+
+  jaeger:
+    image: ${JAEGERTRACING_IMAGE}
+    container_name: jaeger
+    command:
+      - "--memory.max-traces=5000"
+      - "--query.base-path=/jaeger/ui"
+      - "--prometheus.server-url=http://${PROMETHEUS_ADDR}"
+      - "--prometheus.query.normalize-calls=true"
+      - "--prometheus.query.normalize-duration=true"
+    restart: unless-stopped
+    ports:
+      - ${JAEGER_SERVICE_PORT}:${JAEGER_SERVICE_PORT}
+      - "${OTEL_COLLECTOR_PORT_GRPC}"
+    environment:
+      - METRICS_STORAGE_TYPE=prometheus
+
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    container_name: grafana
+    restart: unless-stopped
+    volumes:
+      - ./config/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./config/grafana/provisioning/:/etc/grafana/provisioning/
+    ports:
+      - ${GRAFANA_SERVICE_PORT}:${GRAFANA_SERVICE_PORT}
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE}
+    container_name: prometheus
+    command:
+      - --web.console.templates=/etc/prometheus/consoles
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --storage.tsdb.retention.time=1h
+      - --config.file=/etc/prometheus/prometheus-config.yaml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+      - --enable-feature=exemplar-storage
+      - --enable-feature=otlp-write-receiver
+    volumes:
+      - ./config/prometheus/prometheus-config.yaml:/etc/prometheus/prometheus-config.yaml
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_SERVICE_PORT}:${PROMETHEUS_SERVICE_PORT}"
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE}
+    container_name: elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - bootstrap.memory_lock=true
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        hard: -1
+        soft: -1
+    ports:
+      - ${ELASTICSEARCH_SERVICE_PORT}:${ELASTICSEARCH_SERVICE_PORT}
+    healthcheck:
+      interval: 20s
+      retries: 10
+      test: curl -s http://elasticsearch:9200/_cluster/health | grep -vq '"status":"red"'
+
+# Optional services
+  kafka-ui:
+    image: ${KAFKAUI_IMAGE}
+    container_name: kafka-ui
+    ports:
+      - ${KAFKAUI_SERVICE_PORT}:${KAFKAUI_SERVICE_PORT}
+    restart: always
+    environment:
+      - SERVER_PORT=${KAFKAUI_SERVICE_PORT}
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=${KAFKAUI_SERVICE_KAFKA_BROKER}
+    depends_on:
+      kafka:
+        condition: service_healthy

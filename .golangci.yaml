@@ -1,0 +1,25 @@
+linters:
+  enable:
+    # Sorted alphabetically.
+    - bodyclose
+    - errcheck
+    - goconst
+    - godot
+    - gofmt
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - typecheck
+    - unparam
+    - unused
+    - exportloopref
+    - promlinter
+
+linters-settings:
+  misspell:
+    locale: US
+  goconst:
+    min-occurrences: 5
