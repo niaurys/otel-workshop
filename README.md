@@ -175,11 +175,13 @@ end
 - [OpenTelemetry Go documentation](https://opentelemetry.io/docs/languages/go/)
 - [OpenTelemetry Go API and SDK](https://github.com/open-telemetry/opentelemetry-go)
 - [OpenTelemetry Go API and SDK extensions](https://github.com/open-telemetry/opentelemetry-go-contrib)
+- [Metric Supplementary Guidelines](https://opentelemetry.io/docs/specs/otel/metrics/supplementary-guidelines/)
 
 Specification:
 
 - [Configuration Environment Variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)
 - [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
+- [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/)
 - [Tracing](https://opentelemetry.io/docs/specs/otel/trace/)
 - [Metrics](https://opentelemetry.io/docs/specs/otel/metrics/)
 - [Logs](https://opentelemetry.io/docs/specs/otel/logs/)
