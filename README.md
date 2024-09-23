@@ -17,13 +17,13 @@ Repository provides environment for OpenTelemetry workshop held at Vinted Engine
 git clone https://github.com/niaurys/otel-workshop-2024.git
 ```
 
-1. Change to the workshop folder:
+2. Change to the workshop folder:
 
 ```shell
 cd otel-workshop-2024/
 ```
 
-1. Start the workshop:
+3. Start the workshop:
 
 ```shell
 docker compose up --force-recreate --remove-orphans --detach
