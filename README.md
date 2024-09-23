@@ -29,6 +29,12 @@ cd otel-workshop-2024/
 docker compose up --force-recreate --remove-orphans --detach
 ```
 
+4. Rebuild everything and start again (after changes):
+
+```shell
+docker compose up --detach --build 
+```
+
 ## Telemetry infrastructure
 
 Once the images are built and containers are started you can access:
@@ -97,7 +103,7 @@ subgraph tdf[Telemetry Data Flow]
         subgraph oc[OTel Collector]
             style oc fill:#97aef3,color:black;
             oc-grpc[/"OTLP Receiver<br/>listening on<br/>grpc://localhost:4317"/]
-            oc-http[/"OTLP Receiver<br/>listening on <br/>localhost:4318<br/>localhost:4318"/]
+            oc-http[/"OTLP Receiver<br/>listening on <br/>localhost:4318"/]
             oc-proc(Processors)
             oc-prom[/"OTLP HTTP Exporter"/]
             oc-otlp[/"OTLP Exporter"/]
