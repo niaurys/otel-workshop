@@ -4,6 +4,7 @@ import (
 	"context"
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
 
+	redisotel "github.com/redis/go-redis/extra/redisotel/v9"
 	redis "github.com/redis/go-redis/v9"
 )
 
@@ -21,6 +22,10 @@ func NewWorkshopRedisClient(redisAddr string) *WorkshopClient {
 	client := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
+
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		return nil
+	}
 
 	return &WorkshopClient{
 		client: client,

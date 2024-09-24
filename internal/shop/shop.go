@@ -7,6 +7,7 @@ import (
 	"vinted/otel-workshop/internal/redis"
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
 
+	"go.opentelemetry.io/otel/baggage"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +31,10 @@ func (s *RedisShop) ListProducts(ctx context.Context, req *otelworkshop.Empty) (
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 
-	s.logger.Info("listing products", zap.Int("count", len(s.inventory)))
+	bag := baggage.FromContext(ctx)
+	orderID := bag.Member("order_id").Value()
+
+	s.logger.Info("listing products", zap.Int("count", len(s.inventory)), zap.String("order_id", orderID))
 
 	return &otelworkshop.ListProductsResponse{Products: s.inventory}, nil
 }

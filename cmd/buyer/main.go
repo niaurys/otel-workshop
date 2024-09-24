@@ -8,9 +8,23 @@ import (
 
 	"vinted/otel-workshop/internal/buyer"
 	"vinted/otel-workshop/internal/config"
+	"vinted/otel-workshop/internal/telemetry"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	name = "vinted/otel-workshop/buyer"
+)
+
+var (
+	tracer = otel.Tracer(name)
 )
 
 type BuyerConfig struct {
@@ -21,6 +35,18 @@ type BuyerConfig struct {
 }
 
 func main() {
+	ctx := context.Background()
+
+	shutdown, err := telemetry.SetupOtelSDK(ctx)
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logrus.Fatalf("failed to shutdown otel sdk: %v", err)
+		}
+	}()
+	if err != nil {
+		logrus.Fatalf("failed to setup otel sdk: %v", err)
+	}
+
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	logger.SetFormatter(&logrus.JSONFormatter{})
@@ -36,10 +62,14 @@ func main() {
 		"factory_address": cfg.FactoryAddress,
 	}).Info("starting buyer service")
 
-	g, ctx := errgroup.WithContext(context.Background())
+	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		server := buyer.NewBuyerServer(logger, cfg.FactoryAddress, http.Client{})
+		client := http.Client{
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		}
+
+		server := buyer.NewBuyerServer(logger, cfg.FactoryAddress, client)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/order", server.HandleOrder)
@@ -63,11 +93,31 @@ func main() {
 		defer ticker.Stop()
 
 		for range ticker.C {
+			id := uuid.New()
+
+			memeber, err := baggage.NewMember("order_id", id.String())
+			if err != nil {
+				logger.Fatalf("failed to create baggage member: %v", err)
+			}
+
+			bag, err := baggage.New(memeber)
+			if err != nil {
+				logger.Fatalf("failed to create baggage: %v", err)
+			}
+
+			ctx := baggage.ContextWithBaggage(ctx, bag)
+
+			ctx, span := tracer.Start(ctx, "buyer.Buy")
+
 			logger.Info("buying product")
 			if err := buyer.Buy(ctx); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to buy")
 				logger.Fatalf("failed to buy: %v", err)
 				return err
 			}
+
+			span.End()
 		}
 
 		return nil

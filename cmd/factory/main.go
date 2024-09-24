@@ -8,8 +8,18 @@ import (
 
 	"vinted/otel-workshop/internal/config"
 	"vinted/otel-workshop/internal/factory"
+	"vinted/otel-workshop/internal/telemetry"
 
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	name = "vinted/otel-workshop/factory"
+)
+
+var (
+	tracer = otel.Tracer(name)
 )
 
 type FactoryConfig struct {
@@ -24,6 +34,19 @@ func main() {
 	logger := slog.New(
 		slog.NewJSONHandler(os.Stdout, nil),
 	)
+
+	ctx := context.Background()
+
+	shutdown, err := telemetry.SetupOtelSDK(ctx)
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown otel sdk", "error", err)
+		}
+	}()
+	if err != nil {
+		logger.Error("failed to setup otel sdk", "error", err)
+		os.Exit(1)
+	}
 
 	cfg, err := config.Load[FactoryConfig]()
 	if err != nil {
@@ -46,11 +69,15 @@ func main() {
 		defer ticker.Stop()
 
 		for range ticker.C {
+			ctx, span := tracer.Start(ctx, "factory.Produce")
+
 			err = factory.Produce(ctx)
 			if err != nil {
 				logger.Error("failed to produce products", "error", err)
 				return err
 			}
+
+			span.End()
 		}
 
 		return nil
