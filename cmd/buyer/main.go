@@ -11,11 +11,13 @@ import (
 	"vinted/otel-workshop/internal/telemetry"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -25,6 +27,7 @@ const (
 
 var (
 	tracer = otel.Tracer(name)
+	meter  = otel.Meter(name)
 )
 
 type BuyerConfig struct {
@@ -73,6 +76,7 @@ func main() {
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/order", server.HandleOrder)
+		mux.Handle("/metrics", promhttp.Handler())
 
 		err = http.ListenAndServe(cfg.BuyerAddress, mux)
 		if err != nil {
@@ -82,6 +86,25 @@ func main() {
 
 		return nil
 	})
+
+	orders, err := meter.Int64Counter(
+		"buyer.orders",
+		metric.WithDescription("Number of orders made"),
+		metric.WithUnit("count"),
+	)
+	if err != nil {
+		logger.Fatalf("failed to create orders counter: %v", err)
+	}
+
+	buyDuration, err := meter.Int64Histogram(
+		"buyer.buy_duration",
+		metric.WithDescription("Duration of buying products"),
+		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(0, 100, 200, 300, 400, 500, 600, 700),
+	)
+	if err != nil {
+		logger.Fatalf("failed to create buy duration histogram: %v", err)
+	}
 
 	g.Go(func() error {
 		buyer, err := buyer.NewRandomBuyer(logger, cfg.ShopAddress)
@@ -108,14 +131,18 @@ func main() {
 			ctx := baggage.ContextWithBaggage(ctx, bag)
 
 			ctx, span := tracer.Start(ctx, "buyer.Buy")
+			orders.Add(ctx, 1)
 
 			logger.Info("buying product")
-			if err := buyer.Buy(ctx); err != nil {
+			now := time.Now()
+			err = buyer.Buy(ctx)
+			if err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to buy")
 				logger.Fatalf("failed to buy: %v", err)
 				return err
 			}
+			buyDuration.Record(ctx, time.Since(now).Milliseconds())
 
 			span.End()
 		}

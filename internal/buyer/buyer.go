@@ -2,6 +2,7 @@ package buyer
 
 import (
 	"context"
+	"fmt"
 	"vinted/otel-workshop/internal/random"
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
 
@@ -84,6 +85,8 @@ func (b *RandomBuyer) Buy(ctx context.Context) error {
 		return err
 	}
 
+	fmt.Println("resp", resp)
+
 	count := len(resp.Products)
 
 	span.SetAttributes(
@@ -100,6 +103,7 @@ func (b *RandomBuyer) Buy(ctx context.Context) error {
 
 	product := random.Item(resp.Products)
 	person := randomPerson()
+	b.logger.WithField("quantity", product.Quantity).Info("buying product")
 	quantity := random.Int64(product.Quantity)
 
 	ctx, span = tracer.Start(ctx, "buyer.BuyProduct")

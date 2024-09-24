@@ -18,6 +18,8 @@ services:
       - OTEL_SERVICE_NAME=buyer
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}
       - OTEL_RESOURCE_ATTRIBUTES=${RESOURCE_ATTRIBUTES}
+      - OTEL_GO_X_EXEMPLAR=true
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     ports:
       - ${BUYER_SERVICE_PORT}:${BUYER_SERVICE_PORT}
     depends_on:
@@ -44,6 +46,8 @@ services:
       - OTEL_SERVICE_NAME=factory
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}
       - OTEL_RESOURCE_ATTRIBUTES=${RESOURCE_ATTRIBUTES}
+      - OTEL_GO_X_EXEMPLAR=true
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
       kafka:
         condition: service_healthy
