@@ -9,3 +9,11 @@ scrape_configs:
   static_configs:
   - targets:
     - 'otelcol:8888'
+- job_name: buyer
+  static_configs:
+  - targets:
+    - 'buyer:3001'
+- job_name: factory
+  static_configs:
+  - targets:
+    - 'factory:3003'

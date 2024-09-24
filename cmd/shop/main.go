@@ -10,12 +10,23 @@ import (
 
 	"vinted/otel-workshop/internal/config"
 	"vinted/otel-workshop/internal/shop"
+	"vinted/otel-workshop/internal/telemetry"
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+)
+
+const (
+	name = "vinted/otel-workshop/shop"
+)
+
+var (
+	tracer = otel.Tracer(name)
 )
 
 type ShopConfig struct {
@@ -30,12 +41,24 @@ func main() {
 		_ = logger.Sync()
 	}()
 
+	ctx := context.Background()
+
+	shutdown, err := telemetry.SetupOtelSDK(ctx)
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown otel sdk", zap.Error(err))
+		}
+	}()
+	if err != nil {
+		logger.Error("failed to setup otel sdk", zap.Error(err))
+	}
+
 	cfg, err := config.Load[ShopConfig]()
 	if err != nil {
 		logger.Fatal("new config", zap.Error(err))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	shop := shop.NewRedisShop(logger, cfg.RedisAddress)
@@ -50,11 +73,15 @@ func main() {
 		defer ticker.Stop()
 
 		for range ticker.C {
+			ctx, span := tracer.Start(ctx, "shop.UpdateInventory")
+
 			logger.Info("updating inventory")
 			if err := shop.UpdateInventory(ctx); err != nil {
 				logger.Error("failed to update inventory", zap.Error(err))
 				return err
 			}
+
+			span.End()
 		}
 
 		return nil
@@ -67,7 +94,9 @@ func main() {
 			return err
 		}
 
-		grpcServer := grpc.NewServer()
+		grpcServer := grpc.NewServer(
+			grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		)
 		otelworkshop.RegisterShopServiceServer(grpcServer, shop)
 		reflection.Register(grpcServer)
 

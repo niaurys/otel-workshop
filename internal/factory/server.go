@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type FactoryServer struct {
@@ -25,7 +27,10 @@ func NewFactoryServer(logger *slog.Logger, factoryAddress string, shipper Shippe
 
 func (s *FactoryServer) StartAndRun() error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/make", s.handleMake)
+	otelHandle := otelhttp.NewHandler(
+		http.HandlerFunc(s.handleMake), "make",
+	)
+	mux.Handle("/make", otelHandle)
 
 	err := http.ListenAndServe(s.factoryAddress, mux)
 	if err != nil {

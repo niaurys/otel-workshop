@@ -2,12 +2,24 @@ package buyer
 
 import (
 	"context"
+	"fmt"
 	"vinted/otel-workshop/internal/random"
 	"vinted/otel-workshop/pb/genproto/otelworkshop"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+const (
+	name = "vinted/otel-workshop/internal/buyer"
+)
+
+var (
+	tracer = otel.Tracer(name)
 )
 
 type Buyer interface {
@@ -22,6 +34,7 @@ type RandomBuyer struct {
 func NewRandomBuyer(logger *logrus.Logger, shopAddress string) (*RandomBuyer, error) {
 	conn, err := grpc.NewClient(shopAddress,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
 	if err != nil {
 		return nil, err
@@ -64,12 +77,25 @@ func randomPerson() *person {
 }
 
 func (b *RandomBuyer) Buy(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "buyer.ListProducts")
+	defer span.End()
+
 	resp, err := b.client.ListProducts(ctx, &otelworkshop.Empty{})
 	if err != nil {
 		return err
 	}
 
-	b.logger.WithField("count", len(resp.Products)).Info("listed products")
+	fmt.Println("resp", resp)
+
+	count := len(resp.Products)
+
+	span.SetAttributes(
+		attribute.Int("count", count),
+	)
+
+	span.AddEvent("listed products")
+
+	b.logger.WithField("count", count).Info("listed products")
 
 	if len(resp.Products) == 0 {
 		return nil
@@ -77,7 +103,11 @@ func (b *RandomBuyer) Buy(ctx context.Context) error {
 
 	product := random.Item(resp.Products)
 	person := randomPerson()
+	b.logger.WithField("quantity", product.Quantity).Info("buying product")
 	quantity := random.Int64(product.Quantity)
+
+	ctx, span = tracer.Start(ctx, "buyer.BuyProduct")
+	defer span.End()
 
 	_, err = b.client.BuyProduct(ctx, &otelworkshop.BuyProductRequest{
 		Name:    person.name,
@@ -91,6 +121,16 @@ func (b *RandomBuyer) Buy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	span.SetAttributes(
+		attribute.String("name", person.name),
+		attribute.String("surname", person.surname),
+		attribute.Int64("quantity", quantity),
+		attribute.String("color", product.Color),
+		attribute.String("product", product.Name),
+	)
+
+	span.AddEvent("bought product")
 
 	b.logger.WithFields(logrus.Fields{
 		"name":     person.name,
